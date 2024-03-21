@@ -1,13 +1,13 @@
 build:
 	docker build \
-		-t llama-rocm-docker:$(tag) \
+		-t llama-rocm:$(tag) \
 		-f Dockerfile .
 
 publish:
-	docker image tag llama-rocm-docker:$(tag) hardandheavy/llama-rocm-docker:$(tag)
-	docker push hardandheavy/llama-rocm-docker:$(tag)
-	docker image tag llama-rocm-docker:$(tag) hardandheavy/llama-rocm-docker:latest
-	docker push hardandheavy/llama-rocm-docker:latest
+	docker image tag llama-rocm:$(tag) hardandheavy/llama-rocm:$(tag)
+	docker push hardandheavy/llama-rocm:$(tag)
+	docker image tag llama-rocm:$(tag) hardandheavy/llama-rocm:latest
+	docker push hardandheavy/llama-rocm:latest
 
 bash-dev:
 	docker run -it --rm \
@@ -16,7 +16,7 @@ bash-dev:
 		-v ./huggingface:/root/.cache/huggingface \
 		--device=/dev/kfd \
 		--device=/dev/dri \
-		llama-rocm-docker:$(tag) bash
+		llama-rocm:$(tag) bash
 
 bash:
 	docker run -it --rm \
@@ -25,7 +25,7 @@ bash:
 		-v ./huggingface:/root/.cache/huggingface \
 		--device=/dev/kfd \
 		--device=/dev/dri \
-		hardandheavy/llama-rocm-docker:latest bash
+		hardandheavy/llama-rocm:latest bash
 
 test:
 	python test/base.py

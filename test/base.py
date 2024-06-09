@@ -34,7 +34,7 @@ def interact(
     repeat_penalty=1.1
 ):
     model = Llama.from_pretrained(
-        repo_id="IlyaGusev/saiga_mistral_7b_gguf",
+        repo_id="IlyaGusev/saiga_llama3_8b_gguf",
         filename="model-q8_0.gguf",
         n_gpu_layers=-1,
         n_ctx=n_ctx,

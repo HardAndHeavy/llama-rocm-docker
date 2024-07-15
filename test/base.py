@@ -37,6 +37,7 @@ def interact(
         repo_id="IlyaGusev/saiga_llama3_8b_gguf",
         #repo_id="IlyaGusev/saiga_mistral_7b_lora",
         filename="model-q8_0.gguf",
+        #filename="model-f16.gguf",
         n_gpu_layers=-1,
         n_ctx=n_ctx,
         n_parts=1,

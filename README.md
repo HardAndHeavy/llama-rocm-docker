@@ -8,7 +8,7 @@
 * ROCm (see the installation in [transformers-rocm-docker](https://github.com/HardAndHeavy/transformers-rocm-docker?tab=readme-ov-file#install-rocm))
 
 ### Testing
-```
+```bash
 make bash
 make test
 ```

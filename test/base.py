@@ -1,70 +1,95 @@
 from llama_cpp import Llama
+import warnings
+
+warnings.filterwarnings("ignore", message="The `local_dir_use_symlinks` argument is deprecated")
 
 SYSTEM_PROMPT = "Ты — русскоязычный автоматический ассистент. Ты помогаешь структурировать ответы."
-SYSTEM_TOKEN = 1788
-USER_TOKEN = 1404
-BOT_TOKEN = 9225
-LINEBREAK_TOKEN = 13
 
-ROLE_TOKENS = {
-    "user": USER_TOKEN,
-    "bot": BOT_TOKEN,
-    "system": SYSTEM_TOKEN
-}
-
-def get_message_tokens(model, role, content):
-    message_tokens = model.tokenize(content.encode("utf-8"))
-    message_tokens.insert(1, ROLE_TOKENS[role])
-    message_tokens.insert(2, LINEBREAK_TOKEN)
-    message_tokens.append(model.token_eos())
-    return message_tokens
-
-def get_system_tokens(model):
-    system_message = {
-        "role": "system",
-        "content": SYSTEM_PROMPT
-    }
-    return get_message_tokens(model, **system_message)
+def safe_decode(text_bytes):
+    """Безопасное декодирование с обработкой surrogate symbols"""
+    try:
+        return text_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        return text_bytes.decode('utf-8', errors='replace')
 
 def interact(
-    n_ctx=2000,
+    n_ctx=8192,
     top_k=30,
     top_p=0.9,
     temperature=0.2,
-    repeat_penalty=1.1
+    repeat_penalty=1.1,
+    max_tokens=500
 ):
+    print("=" * 60)
+    print("  Начинается загрузка модели Saiga Llama 3 8B...")
+    print("=" * 60)
+    
     model = Llama.from_pretrained(
         repo_id="IlyaGusev/saiga_llama3_8b_gguf",
-        #repo_id="IlyaGusev/saiga_mistral_7b_lora",
         filename="model-q8_0.gguf",
-        #filename="model-f16.gguf",
         n_gpu_layers=-1,
         n_ctx=n_ctx,
-        n_parts=1,
+        verbose=True,
+        chat_format="llama-3"
     )
-
-    system_tokens = get_system_tokens(model)
-    tokens = system_tokens
-    model.eval(tokens)
-
+    
+    print("=" * 60)
+    print("  ✓ Модель успешно загружена!")
+    print("  Для выхода введите: выход, exit или quit")
+    print("=" * 60)
+    
     while True:
-        user_message = input("> ")
-        message_tokens = get_message_tokens(model=model, role="user", content=user_message)
-        role_tokens = [model.token_bos(), BOT_TOKEN, LINEBREAK_TOKEN]
-        tokens += message_tokens + role_tokens
-        generator = model.generate(
-            tokens,
-            top_k=top_k,
-            top_p=top_p,
-            temp=temperature,
-            repeat_penalty=repeat_penalty
-        )
-        for token in generator:
-            token_str = model.detokenize([token]).decode("utf-8", errors="ignore")
-            tokens.append(token)
-            if token == model.token_eos():
+        try:
+            user_message = input("\nВы: ").strip()
+            
+            if user_message.lower() in ['выход', 'exit', 'quit']:
+                print("\nЗавершение работы. До свидания!")
                 break
-            print(token_str, end="", flush=True)
-        print()
+                
+            if not user_message:
+                print("Пожалуйста, введите сообщение")
+                continue
+                
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message}
+            ]
+            
+            print("\nАссистент: ", end="", flush=True)
+            
+            response = model.create_chat_completion(
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                repeat_penalty=repeat_penalty,
+                max_tokens=max_tokens,
+                stream=True
+            )
+            
+            full_response = ""
+            for chunk in response:
+                if "choices" in chunk and len(chunk["choices"]) > 0:
+                    delta = chunk["choices"][0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        try:
+                            print(content, end="", flush=True)
+                            full_response += content
+                        except UnicodeEncodeError:
+                            safe_content = content.encode('utf-8', errors='replace').decode('utf-8')
+                            print(safe_content, end="", flush=True)
+                            full_response += safe_content
+            
+            print()
+            
+        except KeyboardInterrupt:
+            print("\n\nЗавершение работы...")
+            break
+        except Exception as e:
+            print(f"\n[Ошибка: {e}]")
+            print("Попробуйте еще раз или переформулируйте запрос")
+            continue
 
-interact()
+if __name__ == "__main__":
+    interact()

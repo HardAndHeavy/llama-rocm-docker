@@ -1,1 +1,3 @@
 huggingface
+__pycache__/
+*.pyc

@@ -1,0 +1,5 @@
+.git
+.gitignore
+huggingface
+**/__pycache__
+*.pyc

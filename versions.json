@@ -1,0 +1,37 @@
+{
+  "image": {
+    "version": "3.0.1",
+    "base_image": "hardandheavy/transformers-rocm",
+    "base_version": "3.0.1",
+    "base_digest": "sha256:a46fe7a3efd7c7f87a20d63f58bed76c499604d959597584ffb117c2b336c74c"
+  },
+  "build": {
+    "python_version": "3.14",
+    "amd_gpu_targets": "gfx1030;gfx1100;gfx1101;gfx1200;gfx1201",
+    "cmake": "4.4.4",
+    "ninja": "1.13.2",
+    "scikit-build-core": "1.1.2",
+    "setuptools": "84.2.1",
+    "wheel": "0.48.0"
+  },
+  "sources": {
+    "llama_cpp_python": {
+      "version": "0.3.36",
+      "revision": "1652066e0af45f2313b339670ef9555e8a54e545"
+    },
+    "llama_cpp": {
+      "version": "v0.9.0",
+      "revision": "cd959bae99ff4bed22bef2604f45241c09bbb8c8"
+    }
+  },
+  "runtime": {
+    "diskcache": "5.6.3",
+    "jinja2": "3.1.6"
+  },
+  "test": {
+    "model_repository": "LiquidAI/LFM3-1.7B-GGUF",
+    "model_revision": "cd0c74c575b5c416f3011b5b4c298077f26ca8c2",
+    "model_file": "LFM3-1.7B-Q4_K_M.gguf",
+    "model_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4"
+  }
+}

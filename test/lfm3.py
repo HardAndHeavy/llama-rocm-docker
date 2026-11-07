@@ -13,6 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "huggingface" / "LFM3-1.7B-Q4_K_M.gguf"
 DEFAULT_MAX_TOKENS = int(os.getenv("MAX_TOKENS", "512"))
 DEFAULT_N_CTX = int(os.getenv("N_CTX", "8192"))
+# -1 offloads every layer to the GPU. The Makefile exposes this so the image can
+# be checked on a GPU that is too small for the test model.
+DEFAULT_GPU_LAYERS = int(os.getenv("GPU_LAYERS", "-1"))
 SYSTEM_PROMPT = "Ты — полезный русскоязычный ассистент. Отвечай кратко."
 AUTO_TEST_PROMPT = "Назови столицу Франции. Ответь одним словом."
 
@@ -21,11 +24,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Open an interactive LFM3 chat by default, or generate and validate "
-            "one response with --auto-test."
+            "one response with --test."
         )
     )
     parser.add_argument(
-        "--auto-test",
+        "--test",
         action="store_true",
         help="run one fixed prompt, validate model generation, and exit",
     )
@@ -47,11 +50,19 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_N_CTX,
         help="context size (default: N_CTX or %(default)s)",
     )
+    parser.add_argument(
+        "--gpu-layers",
+        type=int,
+        default=DEFAULT_GPU_LAYERS,
+        help="layers to offload to the GPU; -1 means all (default: GPU_LAYERS or %(default)s)",
+    )
     args = parser.parse_args()
     if args.max_tokens < 1:
         parser.error("--max-tokens must be greater than zero")
     if args.n_ctx < 1:
         parser.error("--n-ctx must be greater than zero")
+    if args.gpu_layers < -1:
+        parser.error("--gpu-layers must be -1 or greater")
     return args
 
 
@@ -69,17 +80,17 @@ def check_rocm() -> None:
     print(llama_cpp.llama_print_system_info().decode().strip())
 
 
-def load_model(model_path: Path, n_ctx: int) -> Llama:
+def load_model(model_path: Path, n_ctx: int, gpu_layers: int) -> Llama:
     if not model_path.is_file():
         raise FileNotFoundError(
             f"GGUF model not found: {model_path}. Run `make download-model` first."
         )
 
     print(f"Model: {model_path}")
-    print(f"Context: {n_ctx} tokens; GPU layers: all")
+    print(f"Context: {n_ctx} tokens; GPU layers: {gpu_layers}")
     model = Llama(
         model_path=str(model_path),
-        n_gpu_layers=-1,
+        n_gpu_layers=gpu_layers,
         n_ctx=n_ctx,
         seed=0,
         verbose=False,
@@ -121,7 +132,7 @@ def generate_response(
     return response, generated_tokens
 
 
-def run_auto_test(model: Llama, max_tokens: int) -> None:
+def run_test(model: Llama, max_tokens: int) -> None:
     messages = initial_messages()
     messages.append({"role": "user", "content": AUTO_TEST_PROMPT})
     response, generated_tokens = generate_response(model, messages, max_tokens)
@@ -129,7 +140,7 @@ def run_auto_test(model: Llama, max_tokens: int) -> None:
     print(f"\nPrompt: {AUTO_TEST_PROMPT}")
     print(f"Generated response: {response}")
     print(f"Generated tokens: {generated_tokens}")
-    print("ROCm llama.cpp auto-test passed.")
+    print("ROCm llama.cpp test passed.")
 
 
 def print_chat_help() -> None:
@@ -182,9 +193,9 @@ def run_chat(model: Llama, max_tokens: int) -> None:
 def main() -> None:
     args = parse_args()
     check_rocm()
-    model = load_model(args.model_path, args.n_ctx)
-    if args.auto_test:
-        run_auto_test(model, args.max_tokens)
+    model = load_model(args.model_path, args.n_ctx, args.gpu_layers)
+    if args.test:
+        run_test(model, args.max_tokens)
     else:
         run_chat(model, args.max_tokens)
 

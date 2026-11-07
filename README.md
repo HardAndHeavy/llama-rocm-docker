@@ -80,6 +80,17 @@ make test                  # loads LFM3 into the GPU and generates a response
 
 `3.0.1` is the default `tag`, so explicit `tag=` arguments can be omitted.
 
+Run targets use the published image by default, so a fresh clone can skip the
+build entirely and start with `make bash`. After `make build`, pass `LOCAL=1` to
+run against what you just built — that is the image the release is verified
+against:
+
+```bash
+make build
+make LOCAL=1 smoke-test
+make LOCAL=1 test
+```
+
 Compiling llama.cpp is the expensive part of the build and it happens in a
 throwaway builder stage: CMake, Ninja and the C++ toolchain never reach the
 shipped image. The wheel is verified before it leaves the builder — the version
@@ -92,23 +103,31 @@ first request.
 the host. `make test` additionally downloads the test model (about 1 GB) on its
 first run.
 
-## Interactive LFM3 chat
+## Shell and interactive LFM3 chat
 
 ```bash
-make bash
+make bash     # plain shell in the image, repository mounted at /app
+make chat     # interactive LFM3 chat
 ```
 
-`make bash` downloads the model if it is missing and starts an interactive chat.
-Use `/clear` to reset the history, `/help` to list commands, and `/exit`,
-`/quit`, or `Ctrl+D` to leave. `make bash-dev` opens a plain shell in the same
-image instead.
+`make bash` starts a shell and needs nothing but Docker and an AMD GPU; it does
+not download a model. `make chat` downloads the test model if it is missing
+(about 1 GB) and starts an interactive chat. Use `/clear` to reset the history,
+`/help` to list commands, and `/exit`, `/quit`, or `Ctrl+D` to leave.
+
+Both run the published image unless `LOCAL=1` is passed:
+
+```bash
+make LOCAL=1 bash
+make LOCAL=1 chat
+```
 
 Override the model, generation limit, context size or offload depth on the
 command line or through the environment:
 
 ```bash
 make test MAX_TOKENS=256 N_CTX=4096 GPU_LAYERS=20
-# Or inside `make bash`:
+# Or inside `make chat`:
 python test/lfm3.py --gpu-layers 20 --max-tokens 256
 ```
 

@@ -7,6 +7,16 @@ PUBLISH_IMAGE ?= hardandheavy/llama-rocm
 tag ?= 3.0.1
 
 LOCAL_IMAGE = $(IMAGE):$(tag)
+
+# Run targets default to the published release, so a fresh clone can start a
+# shell or a chat without compiling llama.cpp first. `make build` still tags the
+# local image only; passing LOCAL=1 to a run target switches it to that build,
+# which is what release verification needs.
+RUN_IMAGE ?= $(PUBLISH_IMAGE):$(tag)
+ifeq ($(LOCAL),1)
+RUN_IMAGE := $(LOCAL_IMAGE)
+endif
+
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GIT_REVISION ?= $(shell git rev-parse HEAD)
 # One image is built and then aliased, so a second name never costs a rebuild.
@@ -111,17 +121,17 @@ lock:
 		--output-file requirements-runtime.lock \
 		$(UV_LOCK_FLAGS)
 
-bash: download-model
-	$(DOCKER) run -it $(DOCKER_RUN_FLAGS) $(LOCAL_IMAGE) python test/lfm3.py
+bash:
+	$(DOCKER) run -it $(DOCKER_RUN_FLAGS) $(RUN_IMAGE) bash
 
-bash-dev:
-	$(DOCKER) run -it $(DOCKER_RUN_FLAGS) $(LOCAL_IMAGE) bash
+chat: download-model
+	$(DOCKER) run -it $(DOCKER_RUN_FLAGS) $(RUN_IMAGE) python test/lfm3.py
 
 # Run curl as root in the image so Docker-owned cache directories also work.
 download-model:
 	$(DOCKER) run --rm \
 		-v $(CURDIR)/huggingface:/model \
-		--entrypoint bash $(LOCAL_IMAGE) -c '\
+		--entrypoint bash $(RUN_IMAGE) -c '\
 		set -e; \
 		if [ ! -f /model/$(MODEL_FILE) ]; then \
 			curl -fL --retry 5 --retry-delay 2 -C - \
@@ -133,16 +143,16 @@ download-model:
 		fi'
 
 smoke-test:
-	$(DOCKER) run $(DOCKER_RUN_FLAGS) $(LOCAL_IMAGE) python test/llama_smoke.py
+	$(DOCKER) run $(DOCKER_RUN_FLAGS) $(RUN_IMAGE) python test/llama_smoke.py
 
 test: download-model
-	$(DOCKER) run $(DOCKER_RUN_FLAGS) $(LOCAL_IMAGE) python test/lfm3.py --test
+	$(DOCKER) run $(DOCKER_RUN_FLAGS) $(RUN_IMAGE) python test/lfm3.py --test
 
 # `smoke-test` checks this image's addition (the llama.cpp HIP backend).
 # `base-smoke-test` re-checks what it inherits from the base image.
 base-smoke-test:
 	$(DOCKER) run --rm --ipc=host --device=/dev/kfd --device=/dev/dri \
-		-w /app -v $(CURDIR):/app $(LOCAL_IMAGE) python test/rocm_smoke.py
+		-w /app -v $(CURDIR):/app $(RUN_IMAGE) python test/rocm_smoke.py
 
 publish:
 	@if [ "$(tag)" = "latest" ]; then \
@@ -154,4 +164,4 @@ publish:
 	$(DOCKER) image tag $(LOCAL_IMAGE) $(PUBLISH_IMAGE):latest
 	$(call push_with_retries,$(PUBLISH_IMAGE):latest)
 
-.PHONY: build check versions pin-base pin-base-check lock bash bash-dev download-model smoke-test test base-smoke-test publish
+.PHONY: build check versions pin-base pin-base-check lock bash chat download-model smoke-test test base-smoke-test publish

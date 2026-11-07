@@ -4,6 +4,18 @@ Image versions are independent of the ROCm, PyTorch and llama.cpp versions.
 Only changes that affect the published image or the repository commands are
 listed.
 
+## Unreleased
+
+- `make bash` now opens a plain shell and no longer downloads the test model
+  first; `make chat` is the interactive LFM3 chat. The old split (`bash` for
+  chat, `bash-dev` for a shell) made the same target mean different things here
+  and in `transformers-rocm-docker`.
+- Run targets (`bash`, `chat`, `download-model`, `smoke-test`, `test`,
+  `base-smoke-test`) use the published image by default, so a fresh clone works
+  without compiling llama.cpp. Pass `LOCAL=1` to target the image `make build`
+  produced; `build` and `publish` are unchanged and still operate on the local
+  image only.
+
 ## 3.0.1
 
 Rebuilt on `transformers-rocm:3.0.1` (ROCm 10.1.0, Ubuntu 26.04, Python 3.14,

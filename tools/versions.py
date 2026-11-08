@@ -60,7 +60,8 @@ def build_requirements_in(data: dict) -> str:
         f"# {GENERATED_HEADER}\n"
         "# CPython 3.14, Linux x86_64. Build-time only: scikit-build-core drives\n"
         "# CMake, cmake and ninja compile llama.cpp, setuptools/wheel back the\n"
-        "# non-isolated build required by `--no-build-isolation`.\n"
+        "# non-isolated build required by `--no-build-isolation`, and patchelf\n"
+        "# rewrites the RPATH of the compiled libraries before the wheel is packed.\n"
         + "".join(
             f"{name}=={build[name]}\n"
             for name in (
@@ -69,6 +70,7 @@ def build_requirements_in(data: dict) -> str:
                 "wheel",
                 "cmake",
                 "ninja",
+                "patchelf",
             )
         )
     )

@@ -12,7 +12,7 @@
 # and nothing else.
 
 # BEGIN GENERATED: tools/versions.py args
-ARG IMAGE_VERSION=3.0.1
+ARG IMAGE_VERSION=3.0.2
 ARG BASE_IMAGE=hardandheavy/transformers-rocm:3.0.1@sha256:a46fe7a3efd7c7f87a20d63f58bed76c499604d959597584ffb117c2b336c74c
 ARG LLAMA_CPP_PYTHON_VERSION=0.3.36
 ARG LLAMA_CPP_PYTHON_REVISION=1652066e0af45f2313b339670ef9555e8a54e545
@@ -81,6 +81,38 @@ ENV CMAKE_ARGS="-DGGML_HIP=ON -DGGML_NATIVE=OFF -DLLAVA_BUILD=OFF -DCMAKE_HIP_CO
 RUN set -eux; \
     python -m pip wheel --no-cache-dir --no-build-isolation --no-deps \
         --wheel-dir /opt/wheels /tmp/llama-cpp-python; \
+    ls -la /opt/wheels
+
+# Point the compiled libraries at the same ROCm PyTorch uses.
+#
+# PyTorch loads ROCm from the pip rocm-sdk packages in /opt/venv. llama.cpp is
+# compiled against the deb ROCm under /opt/rocm (see CMAKE_HIP_COMPILER above),
+# and llama-cpp-python's CMakeLists turns on CMAKE_INSTALL_RPATH_USE_LINK_PATH,
+# which records that link directory in the DT_RPATH of libllama.so and
+# libggml.so. A process that imports llama_cpp first therefore loads the deb
+# libamd_comgr.so; PyTorch then loads the pip one, both LLVMs inside them
+# register the same command-line options, and the process aborts with
+# "Option 'spirv-expand-step' registered more than once". (Importing torch
+# first happened to work only because the pip copy was already resident.)
+#
+# The RPATH cannot be set from CMAKE_ARGS: llama-cpp-python sets the variables
+# in its CMakeLists without CACHE, so they win. It is rewritten in the wheel
+# instead, before the wheel leaves the builder, so patchelf never reaches the
+# shipped image. The pip ROCm comes first; the deb directories stay as a
+# fallback for libomp, which only the deb LLVM ships.
+ARG ROCM_DEB_LIB=/opt/rocm/core-10.1/lib
+RUN set -eux; \
+    site="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
+    rpath="\$ORIGIN:${site}/_rocm_sdk_core/lib:${site}/_rocm_sdk_libraries/lib:${ROCM_DEB_LIB}/llvm/lib:${ROCM_DEB_LIB}"; \
+    wheel_file="$(ls /opt/wheels/llama_cpp_python-*.whl)"; \
+    mkdir /tmp/unpacked; \
+    python -m wheel unpack --dest /tmp/unpacked "${wheel_file}"; \
+    for library in /tmp/unpacked/*/llama_cpp/lib/*.so*; do \
+        if [ ! -L "${library}" ]; then patchelf --set-rpath "${rpath}" "${library}"; fi; \
+    done; \
+    rm "${wheel_file}"; \
+    python -m wheel pack --dest-dir /opt/wheels /tmp/unpacked/*; \
+    rm -rf /tmp/unpacked; \
     ls -la /opt/wheels
 
 # Verify the wheel before it leaves the builder: the version must be the pinned
@@ -174,6 +206,13 @@ RUN set -eux; \
     python -m pip install --no-cache-dir --no-deps /opt/wheels/llama_cpp_python-*.whl; \
     rm -rf /opt/wheels /opt/requirements; \
     python -m pip check
+
+# The wheel was built with its RPATH pointed at the pip ROCm (see the builder
+# stage). Re-check it here, in the stage that ships: a base image that moved the
+# pip ROCm, or a wheel that lost the rewrite, would bring the second
+# libamd_comgr back and make `import llama_cpp` before `import torch` abort.
+COPY test/rocm_resolution.py /tmp/rocm_resolution.py
+RUN python /tmp/rocm_resolution.py && rm /tmp/rocm_resolution.py
 
 # Fail the build, not the first request, if an import or the backend is missing.
 # This needs no GPU: llama.cpp loads HIP kernels lazily, so the check runs on any

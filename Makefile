@@ -1,10 +1,10 @@
 DOCKER ?= docker
 # Comma-separated tags to apply to the locally built image. `make build tags=a,b`
 # publishes several aliases without rebuilding.
-tags ?= 3.0.1
+tags ?= 3.0.2
 IMAGE ?= llama-rocm
 PUBLISH_IMAGE ?= hardandheavy/llama-rocm
-tag ?= 3.0.1
+tag ?= 3.0.2
 
 LOCAL_IMAGE = $(IMAGE):$(tag)
 
@@ -92,6 +92,7 @@ check:
 	$(DOCKER) build --check -f Dockerfile .
 	python3 -B tools/versions.py check
 	python3 -B -m py_compile test/lfm3.py test/llama_smoke.py test/rocm_smoke.py \
+		test/coexist_smoke.py test/rocm_resolution.py \
 		tools/versions.py tools/pin_base.py
 
 # Propagate versions.json into the Dockerfile blocks and the README table.
@@ -154,9 +155,15 @@ base-smoke-test:
 	$(DOCKER) run --rm --ipc=host --device=/dev/kfd --device=/dev/dri \
 		-w /app -v $(CURDIR):/app $(RUN_IMAGE) python test/rocm_smoke.py
 
+# `smoke-test` and `base-smoke-test` each load one of the two ROCm stacks.
+# This one loads both in one process, which is what a consumer such as
+# comfyui-rocm does, and is the only check of the pair together.
+coexist-test:
+	$(DOCKER) run $(DOCKER_RUN_FLAGS) $(RUN_IMAGE) python test/coexist_smoke.py
+
 publish:
 	@if [ "$(tag)" = "latest" ]; then \
-		echo "Refusing to publish without an explicit release tag (for example, tag=3.0.1)."; \
+		echo "Refusing to publish without an explicit release tag (for example, tag=3.0.2)."; \
 		exit 1; \
 	fi
 	$(DOCKER) image tag $(LOCAL_IMAGE) $(PUBLISH_IMAGE):$(tag)
@@ -164,4 +171,4 @@ publish:
 	$(DOCKER) image tag $(LOCAL_IMAGE) $(PUBLISH_IMAGE):latest
 	$(call push_with_retries,$(PUBLISH_IMAGE):latest)
 
-.PHONY: build check versions pin-base pin-base-check lock bash chat download-model smoke-test test base-smoke-test publish
+.PHONY: build check versions pin-base pin-base-check lock bash chat download-model smoke-test test base-smoke-test coexist-test publish

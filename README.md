@@ -10,14 +10,27 @@ which supplies ROCm, the pinned PyTorch stack and a CPython virtualenv. This
 repository adds only the HIP-enabled `llama-cpp-python` binding, compiled from
 source against a pinned llama.cpp revision.
 
-That split is deliberate: `transformers-rocm` is the base for every GPU project
-here, and `llama-rocm` is the base for
-[`comfyui-rocm-docker`](https://github.com/HardAndHeavy/comfyui-rocm-docker),
-which needs a working `llama-cpp-python` inside the same Python environment as
-ComfyUI. Keeping the compile in its own image means ComfyUI inherits a tested
-binary instead of building llama.cpp on every user's machine.
+The images form one chain:
 
-## Version 3.0.1 software stack
+```
+rocm/dev-ubuntu-26.04      ROCm, Ubuntu
+  └─ transformers-rocm     pinned PyTorch, Transformers, venv at /opt/venv
+       └─ llama-rocm       this image: llama-cpp-python with a HIP backend
+            └─ comfyui-rocm   ComfyUI, on the same /opt/venv
+```
+
+The split is deliberate.
+[`comfyui-rocm-docker`](https://github.com/HardAndHeavy/comfyui-rocm-docker)
+derives from this image so that ComfyUI and its LLM nodes find a working
+`llama-cpp-python` in the same Python environment as PyTorch, and pins it so a
+custom node cannot replace it. Keeping the compile in its own image means
+ComfyUI inherits a binary that was built and tested here, including in the same
+process as PyTorch (`make coexist-test`), instead of building llama.cpp on every
+user's machine. Both stacks resolve one copy of ROCm, so a consumer may import
+either one first; see
+[Using this image from another project](#using-this-image-from-another-project).
+
+## Version 3.0.2 software stack
 
 See the [changelog](CHANGELOG.md) for release highlights. The image version is
 independent of the ROCm, PyTorch and llama.cpp versions.
@@ -59,7 +72,7 @@ docker run --rm -it \
   --ipc=host \
   --device=/dev/kfd \
   --device=/dev/dri \
-  hardandheavy/llama-rocm:3.0.1
+  hardandheavy/llama-rocm:3.0.2
 ```
 
 `latest` points to the same release after publication, but the numbered tag is
@@ -72,13 +85,14 @@ git clone https://github.com/HardAndHeavy/llama-rocm-docker.git
 cd llama-rocm-docker
 
 make check                 # Dockerfile lint, version sync, Python syntax
-make build                 # creates llama-rocm:3.0.1
+make build                 # creates llama-rocm:3.0.2
 make base-smoke-test       # the inherited PyTorch/ROCm stack still works
 make smoke-test            # llama.cpp reports GPU offload
+make coexist-test          # torch and llama.cpp work together in one process
 make test                  # loads LFM3 into the GPU and generates a response
 ```
 
-`3.0.1` is the default `tag`, so explicit `tag=` arguments can be omitted.
+`3.0.2` is the default `tag`, so explicit `tag=` arguments can be omitted.
 
 Run targets use the published image by default, so a fresh clone can skip the
 build entirely and start with `make bash`. After `make build`, pass `LOCAL=1` to
@@ -99,9 +113,16 @@ contain the LFM3 architecture. A silent CPU-only fallback is the classic
 failure mode of a HIP build, and it is caught at build time instead of at the
 first request.
 
-`make smoke-test` and `make base-smoke-test` require `/dev/kfd` and `/dev/dri` on
-the host. `make test` additionally downloads the test model (about 1 GB) on its
-first run.
+`make smoke-test` and `make base-smoke-test` each load only one of the two ROCm
+stacks. `make coexist-test` loads both in one interpreter, as ComfyUI does: it
+runs a PyTorch kernel, initializes llama.cpp, generates a few tokens on the GPU
+if the test model is already downloaded, runs a PyTorch kernel again, and then
+checks the reverse import order in a fresh interpreter. Both orders must pass;
+before 3.0.2 the reverse one aborted the process (see below).
+
+The smoke and coexist tests require `/dev/kfd` and `/dev/dri` on the host.
+`make test` additionally downloads the test model (about 1 GB) on its first
+run.
 
 ## Shell and interactive LFM3 chat
 
@@ -163,7 +184,7 @@ different manifests, which means the base repository is mid-release.
 it before publishing.
 
 Run `make lock` **only for an intentional dependency update**, review both lock
-files, and then rebuild and run all four test targets.
+files, and then rebuild and run all five test targets.
 
 ## Health checks
 
@@ -194,14 +215,14 @@ After `docker login` and a green `make check` on an AMD GPU host:
 make publish
 ```
 
-This pushes both `hardandheavy/llama-rocm:3.0.1` and `:latest`.
+This pushes both `hardandheavy/llama-rocm:3.0.2` and `:latest`.
 `make publish tag=latest` is deliberately rejected to avoid an unversioned
 release. Both pushes retry independently (`PUSH_RETRIES`, 8 attempts by
 default); every attempt reuses the layers the registry already accepted, so
 rerunning the target continues where the previous attempt stopped. Verify with:
 
 ```bash
-docker buildx imagetools inspect hardandheavy/llama-rocm:3.0.1
+docker buildx imagetools inspect hardandheavy/llama-rocm:3.0.2
 ```
 
 A multi-architecture build is available through `make build tags=a,b`, which
@@ -213,14 +234,43 @@ The intended downstream is a Dockerfile that derives from this image and runs
 `llama_cpp` from the same `/opt/venv` interpreter ComfyUI uses:
 
 ```dockerfile
-FROM hardandheavy/llama-rocm:3.0.1
-RUN python -c "import llama_cpp; assert llama_cpp.llama_supports_gpu_offload()"
+FROM hardandheavy/llama-rocm:3.0.2
+RUN python -c "import torch, llama_cpp; assert llama_cpp.llama_supports_gpu_offload()"
 ```
 
 Because `llama-cpp-python` is installed with `--no-deps`, it never overwrites
 the pinned `numpy`, `jinja2` or `typing-extensions` from the base image. Do not
 `pip install llama-cpp-python` again downstream — rebuild this image instead,
 so the HIP binary and its llama.cpp revision stay verified.
+
+### One ROCm for both stacks
+
+A process may import `torch` and `llama_cpp` in either order. Both work, and
+`make coexist-test` checks both: the reverse order in a fresh interpreter, the
+torch-first order in one process with a real GPU generation in between.
+
+That was not always true. PyTorch loads ROCm from the pip `rocm-sdk-*` packages
+in `/opt/venv`, while llama.cpp is compiled against the deb ROCm under
+`/opt/rocm` (see the `CMAKE_HIP_COMPILER` note in the Dockerfile). Until 3.0.2,
+`llama-cpp-python`'s own CMakeLists recorded that deb path in the `DT_RPATH` of
+`libllama.so` and `libggml.so`, so importing `llama_cpp` first loaded a second
+`libamd_comgr.so` — a second LLVM, which registers the same command-line
+options as the first and aborted the process:
+
+```
+: CommandLine Error: Option 'spirv-expand-step' registered more than once!
+LLVM ERROR: inconsistency in registered CommandLine options
+```
+
+The builder stage now rewrites that RPATH in the wheel, pointing it at the pip
+ROCm before the deb directories, so both stacks resolve one copy of the
+libraries. `patchelf` is a builder-stage tool and is not in the shipped image,
+and `test/rocm_resolution.py` fails the build if the rewrite ever stops
+matching what the base image ships.
+
+This matters for downstream users because `comfyui-rocm` runs both stacks in one
+interpreter, and its custom nodes are free to spawn scripts that import either
+one first.
 
 ## License
 

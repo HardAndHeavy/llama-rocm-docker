@@ -1,6 +1,6 @@
 {
   "image": {
-    "version": "3.0.1",
+    "version": "3.0.2",
     "base_image": "hardandheavy/transformers-rocm",
     "base_version": "3.0.1",
     "base_digest": "sha256:a46fe7a3efd7c7f87a20d63f58bed76c499604d959597584ffb117c2b336c74c"
@@ -12,7 +12,8 @@
     "ninja": "1.13.2",
     "scikit-build-core": "1.1.2",
     "setuptools": "84.2.1",
-    "wheel": "0.48.0"
+    "wheel": "0.48.0",
+    "patchelf": "0.19.3.0"
   },
   "sources": {
     "llama_cpp_python": {
